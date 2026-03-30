@@ -2,3 +2,4 @@
 #pragma once
 
 #include "UnifiedVisionNetImpl.h"
+#include "Resnet50_Vision.h"

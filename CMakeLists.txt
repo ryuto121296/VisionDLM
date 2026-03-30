@@ -18,9 +18,20 @@ set(ENV{CUDNN_ROOT} "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# --- 4. Path Configuration ---
+# Determine which LibTorch version to use based on the build type
+# Note: For Visual Studio, you must set the build type during the CMake configure step 
+# or via the command line: -DCMAKE_BUILD_TYPE=Debug
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(LIBTORCH_DIR "D:/_Build_CPP/LibTorch/2.11.0+cu130/debug/libtorch")
+    message(STATUS "Configuring for DEBUG build using: ${LIBTORCH_DIR}")
+else()
+    # Default to Release if not specified or if set to Release
+    set(LIBTORCH_DIR "D:/_Build_CPP/LibTorch/2.11.0+cu130/release/libtorch")
+    message(STATUS "Configuring for RELEASE build using: ${LIBTORCH_DIR}")
+endif()
+
 list(APPEND CMAKE_PREFIX_PATH 
-    "D:/_Build_CPP/LibTorch/2.11.0+cu130/release/libtorch"
+    "${LIBTORCH_DIR}"
     "C:/opencv/opencv-4.11.0/build" 
 )
 
@@ -37,6 +48,7 @@ find_package(OpenCV REQUIRED)
 add_executable(my_app main.cpp 
     sources/models/models.h
     sources/models/UnifiedVisionNetImpl.h
+    sources/models/Resnet50_Vision.h
     sources/algorithm/model_handler.h
     sources/algorithm/dataset.h
 )

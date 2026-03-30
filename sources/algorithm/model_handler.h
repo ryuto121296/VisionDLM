@@ -9,8 +9,8 @@
 struct TrainingConfig {
     int64_t img_w = 1024;
     int64_t img_h = 1024;
-    int64_t channels = 3;     // REQUIRED for UnifiedVisionNet
-    int64_t min_defect = 10;   // REQUIRED for UnifiedVisionNet
+    int64_t channels = 3;     // <-- ADD THIS
+    int64_t min_defect = 10;   // <-- ADD THIS
     int64_t batch_size = 4;
     int64_t epochs = 10;
     double learning_rate = 1e-4;
@@ -18,6 +18,39 @@ struct TrainingConfig {
 };
 
 // --- Universal Functions ---
+
+void draw_metrics(int epoch, int max_epochs, const std::vector<float>& losses, const std::vector<float>& accs) {
+    int w = 600, h = 400;
+    cv::Mat canvas = cv::Mat::zeros(h, w, CV_8UC3);
+    
+    // Draw background grid
+    for(int i = 0; i <= 4; i++) {
+        int y = i * (h / 4);
+        cv::line(canvas, {0, y}, {w, y}, cv::Scalar(50, 50, 50), 1);
+    }
+
+    auto plot = [&](const std::vector<float>& data, cv::Scalar color, float max_val) {
+        if (data.size() < 2) return;
+        for (size_t i = 1; i < data.size(); i++) {
+            cv::Point p1((i - 1) * w / max_epochs, h - (data[i - 1] / max_val * h));
+            cv::Point p2(i * w / max_epochs, h - (data[i] / max_val * h));
+            cv::line(canvas, p1, p2, color, 2);
+        }
+    };
+
+    // Find max loss for scaling, accuracy is always 0.0-1.0
+    float max_loss = *std::max_element(losses.begin(), losses.end());
+    if (max_loss < 1.0f) max_loss = 1.0f;
+
+    plot(losses, cv::Scalar(0, 0, 255), max_loss); // Red for Loss
+    plot(accs, cv::Scalar(0, 255, 0), 1.0f);     // Green for Accuracy
+
+    cv::putText(canvas, "Red: Loss (scaled)", {10, 20}, 1, 1, cv::Scalar(0, 0, 255));
+    cv::putText(canvas, "Green: Accuracy", {10, 40}, 1, 1, cv::Scalar(0, 255, 0));
+    
+    cv::imshow("Training Metrics", canvas);
+    cv::waitKey(1); // Refresh window
+}
 
 /**
  * Universal Training Function
@@ -34,10 +67,15 @@ void train_universal(
     torch::optim::Adam optimizer(model->parameters(), torch::optim::AdamOptions(config.learning_rate));
     float best_acc = 0.0;
 
+    std::vector<float> epoch_losses;
+    std::vector<float> epoch_accs;
+
     for (int epoch = 1; epoch <= config.epochs; ++epoch) {
         // Training Phase
         model->train();
         float total_loss = 0;
+        int batch_count = 0;
+
         for (auto& batch : *train_loader) {
             auto data = batch.data.to(device).to(config.precision);
             auto targets = batch.target.to(device);
@@ -47,10 +85,16 @@ void train_universal(
             auto loss = torch::nn::functional::cross_entropy(outputs.to(torch::kFloat32), targets);
             loss.backward();
             optimizer.step();
+            
             total_loss += loss.item<float>();
+            batch_count++;
         }
 
-        // Validation & Confusion Matrix Phase
+        // Calculate average loss for the epoch
+        float avg_loss = total_loss / (batch_count > 0 ? batch_count : 1);
+        epoch_losses.push_back(avg_loss);
+
+        // Validation Phase
         model->eval();
         torch::NoGradGuard no_grad;
         int64_t tp = 0, tn = 0, fp = 0, fn = 0;
@@ -72,7 +116,13 @@ void train_universal(
         }
 
         float acc = (float)(tp + tn) / (tp + tn + fp + fn);
-        std::cout << "Epoch [" << epoch << "] Acc: " << acc * 100 << "% | Missed (FN): " << fn << std::endl;
+        epoch_accs.push_back(acc); // Track accuracy
+
+        // Update the Graph
+        draw_metrics(epoch, config.epochs, epoch_losses, epoch_accs);
+
+        std::cout << "Epoch [" << epoch << "] Loss: " << avg_loss 
+                  << " | Acc: " << acc * 100 << "% | Missed (FN): " << fn << std::endl;
 
         if (acc > best_acc) {
             best_acc = acc;
